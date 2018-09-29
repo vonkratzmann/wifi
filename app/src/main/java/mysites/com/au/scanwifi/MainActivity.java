@@ -31,21 +31,18 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private final static String TAG = MainActivity.class.getSimpleName();
 
     WifiManager mWifiManager;
-    ListView lv;
-    Button buttonScan;
-    int size = 0;
-    List<ScanResult> results;
+    BroadcastReceiver mWifiScanReceiver;
+    ListView mListView;
+    Button mButtonScan;
 
-    String ITEM_KEY = "key";
-    ArrayList<String> arraylist = new ArrayList<>();
-    ArrayAdapter adapter;
+    ArrayList<String> mArraylist = new ArrayList<>();
+    ArrayAdapter mAdapter;
 
     final int PERMISSIONS_REQUEST_ACCESS_COARSE_LOCATION = 10;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
         Log.d(TAG, "onCreate()");
 
         setContentView(R.layout.activity_main);
@@ -61,12 +58,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             }
         });
 
-
-        // Check we have permissions
-
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
+        // Check we have permissions to access coarse location
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
-
             // Permission is not granted
             // Should we show an explanation?
             if (ActivityCompat.shouldShowRequestPermissionRationale(this,
@@ -80,31 +74,31 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                         new String[]{Manifest.permission.ACCESS_COARSE_LOCATION},
                         PERMISSIONS_REQUEST_ACCESS_COARSE_LOCATION);
 
-                // The callback method gets the
-                // result of the request.
+                // The callback method gets the result of the request.
             }
         } else {
             // Permission has already been granted
         }
 
-        buttonScan = (Button) findViewById(R.id.scan);
-        buttonScan.setOnClickListener(this);
-        lv = (ListView) findViewById(R.id.wifilist);
-
-
-        if (mWifiManager.isWifiEnabled() == false) {
-            Toast.makeText(getApplicationContext(), "wifi is disabled..making it enabled", Toast.LENGTH_LONG).show();
-            mWifiManager.setWifiEnabled(true);
-        }
-        this.adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, arraylist);
-        lv.setAdapter(this.adapter);
+        mButtonScan = (Button) findViewById(R.id.scan);
+        mButtonScan.setOnClickListener(this);
+        mListView = (ListView) findViewById(R.id.wifilist);
 
         mWifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-       BroadcastReceiver wifiScanReceiver = new BroadcastReceiver() {
+
+        if (mWifiManager.isWifiEnabled() == false) {
+            Toast.makeText(getApplicationContext(), "wifi is disabled..making it enabled",
+                    Toast.LENGTH_LONG).show();
+            mWifiManager.setWifiEnabled(true);
+        }
+
+        // Set up broadcast receiver
+        mWifiScanReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context c, Intent intent) {
-                boolean success = intent.getBooleanExtra(
-                        WifiManager.EXTRA_RESULTS_UPDATED, false);
+                Log.d(TAG, "onReceive()");
+
+                boolean success = intent.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false);
                 if (success) {
                     scanSuccess();
                 } else {
@@ -113,16 +107,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 }
             }
         };
-
-        IntentFilter intentFilter = new IntentFilter();
-        intentFilter.addAction(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
-        this.registerReceiver(wifiScanReceiver, intentFilter);
-
-        boolean success = mWifiManager.startScan();
-        if (!success) {
-            // scan failure handling
-            scanFailure();
-        }
+        this.mAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, mArraylist);
+        mListView.setAdapter(this.mAdapter);
     }
 
     @Override
@@ -144,17 +130,41 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     private void scanSuccess() {
-        List<ScanResult> results = mWifiManager.getScanResults();
+        Log.d(TAG, "scanSuccess()");
         Toast.makeText(this, "Scan Success", Toast.LENGTH_SHORT).show();
+
+        List<ScanResult> mResults = mWifiManager.getScanResults();
+        int size = mResults.size();
+        Log.d(TAG, "mResults.size(): " + size);
+        unregisterReceiver(mWifiScanReceiver);
+
+        try {
+            while (size > 0) {
+                size--;
+                String ssid = mResults.get(size).SSID;
+                String bssid = mResults.get(size).BSSID;
+                String capabilities = mResults.get(size).capabilities;
+                int level = mResults.get(size).level;
+                int frequency = mResults.get(size).frequency;
+
+                mArraylist.add("ssid: " + ssid + " bssid: " + bssid + " capabilities: " + capabilities
+                + " level: " + level + " frequency: " + frequency);
+                mAdapter.notifyDataSetChanged();
+            }
+        } catch (Exception e) {
+            Log.w("WifScanner", "Exception: " + e);
+        }
     }
 
     private void scanFailure() {
+        Log.d(TAG, "scanFailure()");
+
         Toast.makeText(this, "Scan Failure", Toast.LENGTH_SHORT).show();
 
         // handle failure: new scan did NOT succeed
-        // consider using old scan results: these are the OLD results!
+        // consider using old scan mResults: these are the OLD mResults!
         List<ScanResult> results = mWifiManager.getScanResults();
-        //...potentially use older scan results ...
+        //...potentially use older scan mResults ...
     }
 
     public void onClick(View view) {
@@ -183,40 +193,19 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     private void scanWifiNetworks() {
+        Log.d(TAG, "scanWifiNetworks()");
+        mArraylist.clear();
 
-        arraylist.clear();
-        registerReceiver(wifi_receiver, new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION));
-
-        mWifiManager.startScan();
-
-        Log.d("WifScanner", "scanWifiNetworks");
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
+        this.registerReceiver(mWifiScanReceiver, intentFilter);
 
         Toast.makeText(this, "Scanning....", Toast.LENGTH_SHORT).show();
 
-    }
-
-    BroadcastReceiver wifi_receiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context c, Intent intent) {
-            Log.d(TAG, "onReceive()");
-            results = mWifiManager.getScanResults();
-            Log.d(TAG, "results.size(): " + size);
-            size = results.size();
-            unregisterReceiver(this);
-
-            try {
-                while (size >= 0) {
-                    size--;
-                    arraylist.add(results.get(size).SSID);
-                    adapter.notifyDataSetChanged();
-                }
-            } catch (Exception e) {
-                Log.w("WifScanner", "Exception: " + e);
-
-            }
-
-
+        boolean success = mWifiManager.startScan();
+        if (!success) {
+            // scan failure handling
+            scanFailure();
         }
-    };
-
+    }
 }
